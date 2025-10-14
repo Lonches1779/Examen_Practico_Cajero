@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Cajero Práctica</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- CDN BOOTSTRAP -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    body { padding: 20px; }
+    .card { margin-bottom: 16px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+    .small-muted { font-size: .9rem; color:#6c757d; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-4">Cajero Práctica</h1>
+
+    <div class="row">
+      <div class="col-md-6">
+        <!-- RETIRO -->
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">RETIROS</h5>
+            <div class="mb-3">
+              <label class="form-label">ESCRIBE CANTIDAD A RETIRAR:</label>
+              <input id="montoInput" type="number" step="0.01" class="form-control" placeholder="Ingresa monto" />
+            </div>
+            <button id="btnRetirar" class="btn btn-primary">RETIRO</button>
+            <div id="retirarResult" class="mt-3"></div>
+            <p class="small-muted mt-2">Recurso Endpoint: <code>POST /api/cajero/retirar</code></p>
+          </div>
+        </div>
+
+        <!-- RESET -->
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">REINICIALIZAR EL CAJERO</h5>
+            <div class="mb-2">
+              <label class="form-label">Token admin</label>
+              <input id="tokenInput" type="text" class="form-control" placeholder="admin123" />
+            </div>
+            <button id="btnReset" class="btn btn-danger">REINICIAR CAJERO</button>
+            <div id="resetResult" class="mt-3"></div>
+            <p class="small-muted mt-2">Recurso Endpoint: <code>POST /api/cajero/resetear_cajero?token=...</code></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <!-- INVENTARIO -->
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">MUESTRA LOS BILLETES Y MONEDAS DISPONIBLES EN BD</h5>
+            <button id="btnInventario" class="btn btn-success mb-3">TOTAL DISPONIBLE EN MI CAJERO:</button>
+            <div id="inventarioResult"></div>
+            <p class="small-muted mt-2">Recurso Endpoint: <code>GET /api/cajero/inventario</code></p>
+          </div>
+        </div>
+
+        <!-- RAW RESPONSE -->
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">Respuesta cruda (última)</h5>
+            <pre id="rawResponse" style="height:200px; overflow:auto;">Aquí aparecerá la respuesta raw (JSON)</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr />
+  </div>
+
+  <script>
+    // RECURSO DEFINIDO EN LA API REST
+    const BASE_URL = 'http://localhost:7575/api/cajero';
+
+    const btnRetirar = document.getElementById('btnRetirar');
+    const btnInventario = document.getElementById('btnInventario');
+    const btnReset = document.getElementById('btnReset');
+
+    const montoInput = document.getElementById('montoInput');
+    const tokenInput = document.getElementById('tokenInput');
+
+    const retirarResult = document.getElementById('retirarResult');
+    const inventarioResult = document.getElementById('inventarioResult');
+    const resetResult = document.getElementById('resetResult');
+    const rawResponse = document.getElementById('rawResponse');
+
+    function showRaw(obj){
+      rawResponse.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    async function postJson(url, body){
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const text = await resp.text();
+      try { return { ok: resp.ok, status: resp.status, json: JSON.parse(text) }; }
+      catch(e) { return { ok: resp.ok, status: resp.status, text }; }
+    }
+
+    async function getJson(url){
+      const resp = await fetch(url);
+      const text = await resp.text();
+      try { return { ok: resp.ok, status: resp.status, json: JSON.parse(text) }; }
+      catch(e) { return { ok: resp.ok, status: resp.status, text }; }
+    }
+
+    btnRetirar.addEventListener('click', async () => {
+      retirarResult.innerHTML = '';
+      inventarioResult.innerHTML = '';
+      resetResult.innerHTML = '';
+
+      const monto = parseFloat(montoInput.value);
+      if (isNaN(monto) || monto <= 0) {
+        retirarResult.innerHTML = '<div class="alert alert-warning">Ingresa una cantidad mayor a: 0</div>';
+        return;
+      }
+
+      const url = `${BASE_URL}/retirar`;
+      const res = await postJson(url, { monto });
+
+      if (res.ok) {
+        const data = res.json;
+        showRaw({ endpoint: 'retirar', status: res.status, data });
+        // Muestra breakdown bonito si existe
+        const breakdown = data.breakdown ?? data.entregado ?? [];
+        let html = '<h6>Retiro exitoso</h6>';
+        if (breakdown.length === 0) html += '<div>No se entregó detalle.</div>';
+        else {
+          html += '<table class="table table-sm"><thead><tr><th>Tipo</th><th>Valor</th><th>Cantidad</th></tr></thead><tbody>';
+          breakdown.forEach(b => {
+            const tipo = b.tipo || b.denominacion || b.denominacion;
+            const valor = (b.valor ?? b.value ?? b.denominacion) ;
+            const cantidad = b.cantidad ?? b.count ?? b.cantidad;
+            html += `<tr><td>${tipo}</td><td>${valor}</td><td>${cantidad}</td></tr>`;
+          });
+          html += '</tbody></table>';
+        }
+        retirarResult.innerHTML = html;
+      } else {
+        // error
+        showRaw({ endpoint: 'retirar', status: res.status, body: res.json ?? res.text });
+        retirarResult.innerHTML = `<div class="alert alert-danger">Error ${res.status}: ${ (res.json && res.json.message) ? res.json.message : (res.text || 'Error en servidor') }</div>`;
+      }
+    });
+
+    btnInventario.addEventListener('click', async () => {
+      retirarResult.innerHTML = '';
+      resetResult.innerHTML = '';
+      inventarioResult.innerHTML = '';
+      const url = `${BASE_URL}/inventario`;
+      const res = await getJson(url);
+
+      if (res.ok) {
+        const data = res.json;
+        showRaw({ endpoint: 'inventario', status: res.status, data });
+        if (data.length === 0) {
+          inventarioResult.innerHTML = '<div class="alert alert-info">Cajero sin recursos</div>';
+        } else {
+          let html = '<table class="table table-sm"><thead><tr><th>Id</th><th>Nombre</th><th>Tipo</th><th>Valor</th><th>Cantidad</th></tr></thead><tbody>';
+          data.forEach(c => {
+            html += `<tr><td>${c.id ?? c.ID ?? ''}</td><td>${c.nombre ?? c.name ?? ''}</td><td>${c.tipo ?? c.denominacion ?? ''}</td><td>${c.valor ?? ''}</td><td>${c.cantidad ?? ''}</td></tr>`;
+          });
+          html += '</tbody></table>';
+          inventarioResult.innerHTML = html;
+        }
+      } else {
+        showRaw({ endpoint: 'inventario', status: res.status, body: res.json ?? res.text });
+        inventarioResult.innerHTML = `<div class="alert alert-danger">Error ${res.status}</div>`;
+      }
+    });
+
+    btnReset.addEventListener('click', async () => {
+      retirarResult.innerHTML = '';
+      inventarioResult.innerHTML = '';
+      resetResult.innerHTML = '';
+
+      const token = tokenInput.value.trim();
+      if (!token) {
+        resetResult.innerHTML = '<div class="alert alert-warning">Por favor escriba el token admin.</div>';
+        return;
+      }
+
+      const url = `${BASE_URL}/resetear_cajero?token=${encodeURIComponent(token)}`;
+      const resp = await fetch(url, { method: 'POST' });
+      const text = await resp.text();
+      try {
+        const json = JSON.parse(text);
+        showRaw({ endpoint: 'reset', status: resp.status, json });
+        if (resp.ok) {
+          resetResult.innerHTML = `<div class="alert alert-success">Reset realizado: ${json.mensaje ?? json.status ?? 'OK'}</div>`;
+        } else {
+          resetResult.innerHTML = `<div class="alert alert-danger">Error: ${json.error ?? JSON.stringify(json)}</div>`;
+        }
+      } catch(e) {
+        showRaw({ endpoint: 'reset', status: resp.status, text });
+        resetResult.innerHTML = `<div class="alert alert-info">Respuesta: ${text}</div>`;
+      }
+    });
+
+    (function init(){
+    })();
+
+  </script>
+</body>
+</html>
